@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>My Car Log | Z11 Cube & 86</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #2c3e50; color: #ecf0f1; margin: 0; padding: 20px; }
+        .container { max-width: 600px; margin: 0 auto; background-color: #34495e; padding: 20px; border-radius: 15px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
+        
+        /* メーター風ヘッダー */
+        header { text-align: center; margin-bottom: 20px; border-bottom: 2px solid #e74c3c; padding-bottom: 10px; }
+        h1 { margin: 0; font-style: italic; letter-spacing: 2px; }
+        .car-model { color: #e74c3c; font-size: 14px; font-weight: bold; }
+
+        /* ダッシュボード（集計エリア） */
+        .dashboard { display: flex; justify-content: space-between; margin-bottom: 20px; gap: 10px; }
+        .card { background: #2c3e50; padding: 15px; border-radius: 8px; flex: 1; text-align: center; border: 1px solid #465c71; }
+        .card-title { font-size: 12px; color: #95a5a6; display: block; margin-bottom: 5px; }
+        .card-value { font-size: 20px; font-weight: bold; color: #2ecc71; }
+        
+        /* 入力フォーム */
+        .input-group { background: #465c71; padding: 15px; border-radius: 8px; margin-bottom: 20px; }
+        label { font-size: 12px; display: block; margin-bottom: 5px; color: #bdc3c7; }
+        input, select { width: 100%; padding: 10px; margin-bottom: 10px; border: none; border-radius: 4px; background: #ecf0f1; color: #2c3e50; box-sizing: border-box; }
+        
+        /* ボタン */
+        button { width: 100%; padding: 12px; background-color: #e74c3c; color: white; border: none; border-radius: 4px; font-weight: bold; font-size: 16px; cursor: pointer; transition: 0.3s; }
+        button:hover { background-color: #c0392b; transform: scale(1.02); }
+
+        /* リスト */
+        ul { list-style: none; padding: 0; margin-top: 20px; }
+        li { background: #ecf0f1; color: #2c3e50; padding: 10px; margin-bottom: 10px; border-radius: 4px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 2px 5px rgba(0,0,0,0.2); }
+        .log-info { font-size: 14px; }
+        .log-type { font-size: 12px; padding: 3px 8px; border-radius: 10px; background: #95a5a6; color: white; margin-right: 5px; }
+        .type-gas { background: #e67e22; } /* ガソリン */
+        .type-oil { background: #8e44ad; } /* オイル */
+        .type-maintenance { background: #2980b9; } /* 整備 */
+        
+        .delete-btn { background: none; color: #e74c3c; width: auto; padding: 0 5px; font-size: 18px; }
+        .delete-btn:hover { background: none; color: #c0392b; transform: none; }
+
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <header>
+        <h1>GARAGE LOG</h1>
+        <span class="car-model">Z11 CUBE / TOYOTA 86</span>
+    </header>
+
+    <div class="dashboard">
+        <div class="card">
+            <span class="card-title">総走行距離</span>
+            <span class="card-value" id="total-dist">0 km</span>
+        </div>
+        <div class="card">
+            <span class="card-title">平均燃費</span>
+            <span class="card-value" id="avg-fuel">-- km/L</span>
+        </div>
+        <div class="card">
+            <span class="card-title">総維持費</span>
+            <span class="card-value" id="total-cost">0 円</span>
+        </div>
+    </div>
+
+    <div class="input-group">
+        <label>日付</label>
+        <input type="date" id="date">
+        
+        <label>記録タイプ</label>
+        <select id="type">
+            <option value="gas">⛽ 給油</option>
+            <option value="oil">🛢️ オイル交換</option>
+            <option value="maintenance">🔧 整備・パーツ</option>
+            <option value="other">📝 その他</option>
+        </select>
+
+        <div style="display: flex; gap: 10px;">
+            <div style="flex:1">
+                <label>走行距離 (km)</label>
+                <input type="number" id="odometer" placeholder="例: 100250">
+            </div>
+            <div style="flex:1">
+                <label>費用 (円)</label>
+                <input type="number" id="cost" placeholder="例: 5000">
+            </div>
+        </div>
+
+        <div id="gas-input" style="display: flex; gap: 10px;">
+            <div style="flex:1">
+                <label>給油量 (L)</label>
+                <input type="number" id="liters" placeholder="例: 35.5">
+            </div>
+        </div>
+
+        <button onclick="addLog()">RECORD ENTRY</button>
+    </div>
+
+    <ul id="log-list">
+        </ul>
+</div>
+
+<script>
+    // 初期設定
+    document.getElementById('date').valueAsDate = new Date();
+    
+    // データの読み込み (Local Storage)
+    let logs = JSON.parse(localStorage.getItem('myCarLog')) || [];
+    render();
+
+    // 給油が選ばれたときだけリッター入力を出す
+    document.getElementById('type').addEventListener('change', function() {
+        const gasInput = document.getElementById('gas-input');
+        if(this.value === 'gas') {
+            gasInput.style.display = 'flex';
+        } else {
+            gasInput.style.display = 'none';
+        }
+    });
+
+    function addLog() {
+        const date = document.getElementById('date').value;
+        const type = document.getElementById('type').value;
+        const odometer = document.getElementById('odometer').value;
+        const cost = document.getElementById('cost').value;
+        const liters = document.getElementById('liters').value;
+
+        if(!date || !odometer || !cost) return alert("日付、距離、費用は必須です！");
+
+        const newLog = {
+            id: Date.now(), // ユニークID
+            date, type, odometer, cost, liters
+        };
+
+        logs.unshift(newLog); // 先頭に追加
+        saveAndRender();
+        
+        // 入力クリア
+        document.getElementById('cost').value = '';
+        document.getElementById('liters').value = '';
+    }
+
+    function deleteLog(id) {
+        if(confirm("削除しますか？")) {
+            logs = logs.filter(log => log.id !== id);
+            saveAndRender();
+        }
+    }
+
+    function saveAndRender() {
+        localStorage.setItem('myCarLog', JSON.stringify(logs));
+        render();
+    }
+
+    function render() {
+        const list = document.getElementById('log-list');
+        list.innerHTML = '';
+        
+        let maxOdo = 0;
+        let minOdo = Infinity;
+        let totalCost = 0;
+        let totalLiters = 0;
+        let gasCount = 0;
+
+        logs.forEach(log => {
+            totalCost += parseInt(log.cost);
+            const odo = parseInt(log.odometer);
+            if(odo > maxOdo) maxOdo = odo;
+            if(odo < minOdo) minOdo = odo;
+
+            if(log.type === 'gas' && log.liters) {
+                totalLiters += parseFloat(log.liters);
+                gasCount++;
+            }
+
+            // タイプ別の表示設定
+            let typeLabel = 'その他';
+            let typeClass = '';
+            if(log.type === 'gas') { typeLabel = '給油'; typeClass = 'type-gas'; }
+            if(log.type === 'oil') { typeLabel = 'オイル'; typeClass = 'type-oil'; }
+            if(log.type === 'maintenance') { typeLabel = '整備'; typeClass = 'type-maintenance'; }
+
+            const literInfo = log.liters ? ` / ${log.liters}L` : '';
+
+            list.innerHTML += `
+                <li>
+                    <div>
+                        <span class="log-type ${typeClass}">${typeLabel}</span>
+                        <span class="log-info">
+                            <strong>${log.date}</strong> - ${parseInt(log.odometer).toLocaleString()}km
+                            <br>
+                            ¥${parseInt(log.cost).toLocaleString()} ${literInfo}
+                        </span>
+                    </div>
+                    <button class="delete-btn" onclick="deleteLog(${log.id})">×</button>
+                </li>
+            `;
+        });
+
+        // ダッシュボード計算
+        if(logs.length > 0) {
+            document.getElementById('total-dist').innerText = (maxOdo).toLocaleString() + " km";
+            document.getElementById('total-cost').innerText = totalCost.toLocaleString() + " 円";
+            
+            // 簡易燃費計算 (総走行距離 / 総給油量) ※簡易的な計算です
+            if(totalLiters > 0 && gasCount >= 2) {
+                // 最初の給油から最後の給油までの距離で計算するのが正確ですが、今回は簡易版
+                const fuelDist = maxOdo - minOdo; 
+                const avg = (fuelDist / totalLiters).toFixed(1);
+                document.getElementById('avg-fuel').innerText = avg + " km/L";
+            } else {
+                document.getElementById('avg-fuel').innerText = "-- km/L";
+            }
+        }
+    }
+</script>
+
+</body>
+</html>
