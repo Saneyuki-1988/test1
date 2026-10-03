@@ -39,6 +39,16 @@
         
         .delete-btn { background: none; color: #e74c3c; width: auto; padding: 0 5px; font-size: 18px; }
         .delete-btn:hover { background: none; color: #c0392b; transform: none; }
+        .speak-btn { background: none; color: #2980b9; width: auto; padding: 0 5px; font-size: 18px; }
+        .speak-btn:hover { background: none; color: #1f6391; transform: none; }
+
+        /* 音声読み上げ (Google TTS) */
+        .tts-panel { background: #465c71; padding: 15px; border-radius: 8px; margin-bottom: 20px; }
+        .tts-panel summary { cursor: pointer; font-weight: bold; }
+        .tts-panel .tts-body { margin-top: 10px; }
+        .tts-status { font-size: 12px; color: #bdc3c7; margin-top: 8px; min-height: 1em; }
+        .secondary-btn { background-color: #2980b9; margin-top: 5px; }
+        .secondary-btn:hover { background-color: #1f6391; }
 
     </style>
 </head>
@@ -64,6 +74,37 @@
             <span class="card-value" id="total-cost">0 円</span>
         </div>
     </div>
+
+    <button class="secondary-btn" onclick="speakSummary()" style="margin-bottom: 20px;">🔊 サマリーを読み上げ</button>
+
+    <details class="tts-panel">
+        <summary>🔊 音声読み上げ設定 (Google TTS)</summary>
+        <div class="tts-body">
+            <label>Google Cloud APIキー (このブラウザ内にのみ保存)</label>
+            <input type="password" id="tts-key" placeholder="APIキーを入力" autocomplete="off">
+
+            <label>音声</label>
+            <select id="tts-voice">
+                <option value="ja-JP-Neural2-B">Neural2-B (女性)</option>
+                <option value="ja-JP-Neural2-C">Neural2-C (男性)</option>
+                <option value="ja-JP-Neural2-D">Neural2-D (男性)</option>
+                <option value="ja-JP-Wavenet-A">Wavenet-A (女性)</option>
+                <option value="ja-JP-Wavenet-C">Wavenet-C (男性)</option>
+                <option value="ja-JP-Standard-A">Standard-A (女性)</option>
+            </select>
+
+            <label>話す速さ</label>
+            <select id="tts-rate">
+                <option value="0.85">ゆっくり</option>
+                <option value="1.0" selected>標準</option>
+                <option value="1.2">速い</option>
+            </select>
+
+            <button class="secondary-btn" onclick="saveTtsSettings()">設定を保存</button>
+            <button class="secondary-btn" onclick="speak('音声読み上げのテストです。')">テスト再生</button>
+            <div class="tts-status" id="tts-status"></div>
+        </div>
+    </details>
 
     <div class="input-group">
         <label>日付</label>
@@ -194,7 +235,10 @@
                             ¥${parseInt(log.cost).toLocaleString()} ${literInfo}
                         </span>
                     </div>
-                    <button class="delete-btn" onclick="deleteLog(${log.id})">×</button>
+                    <div>
+                        <button class="speak-btn" onclick="speakLog(${log.id})" title="読み上げ">🔊</button>
+                        <button class="delete-btn" onclick="deleteLog(${log.id})">×</button>
+                    </div>
                 </li>
             `;
         });
@@ -214,6 +258,86 @@
                 document.getElementById('avg-fuel').innerText = "-- km/L";
             }
         }
+    }
+
+    // ===== 音声読み上げ (Google Cloud Text-to-Speech) =====
+    // APIキーはソースに書かず、ブラウザの localStorage にだけ保存する
+    const TTS_KEY_STORAGE = 'myCarLogTts';
+    const ttsSettings = JSON.parse(localStorage.getItem(TTS_KEY_STORAGE)) || { apiKey: '', voice: 'ja-JP-Neural2-B', rate: '1.0' };
+    document.getElementById('tts-key').value = ttsSettings.apiKey;
+    document.getElementById('tts-voice').value = ttsSettings.voice;
+    document.getElementById('tts-rate').value = ttsSettings.rate;
+    let currentAudio = null;
+
+    function setTtsStatus(msg) {
+        document.getElementById('tts-status').innerText = msg;
+    }
+
+    function saveTtsSettings() {
+        ttsSettings.apiKey = document.getElementById('tts-key').value.trim();
+        ttsSettings.voice = document.getElementById('tts-voice').value;
+        ttsSettings.rate = document.getElementById('tts-rate').value;
+        localStorage.setItem(TTS_KEY_STORAGE, JSON.stringify(ttsSettings));
+        setTtsStatus('保存しました');
+    }
+
+    async function speak(text) {
+        if(currentAudio) currentAudio.pause();
+        if(window.speechSynthesis) speechSynthesis.cancel();
+
+        if(!ttsSettings.apiKey) {
+            setTtsStatus('APIキー未設定のため、ブラウザ標準の音声で読み上げます');
+            return speakWithBrowser(text);
+        }
+
+        try {
+            const res = await fetch('https://texttospeech.googleapis.com/v1/text:synthesize', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': ttsSettings.apiKey },
+                body: JSON.stringify({
+                    input: { text },
+                    voice: { languageCode: 'ja-JP', name: ttsSettings.voice },
+                    audioConfig: { audioEncoding: 'MP3', speakingRate: parseFloat(ttsSettings.rate) }
+                })
+            });
+            const data = await res.json();
+            if(!res.ok) throw new Error(data.error ? data.error.message : res.status);
+
+            currentAudio = new Audio('data:audio/mp3;base64,' + data.audioContent);
+            await currentAudio.play();
+            setTtsStatus('Google TTS で再生中');
+        } catch(e) {
+            setTtsStatus('Google TTS エラー: ' + e.message + ' (ブラウザ標準の音声で代用します)');
+            speakWithBrowser(text);
+        }
+    }
+
+    // Google TTS が使えないときの予備 (Web Speech API)
+    function speakWithBrowser(text) {
+        if(!window.speechSynthesis) return;
+        const u = new SpeechSynthesisUtterance(text);
+        u.lang = 'ja-JP';
+        u.rate = parseFloat(ttsSettings.rate);
+        speechSynthesis.speak(u);
+    }
+
+    function speakSummary() {
+        if(logs.length === 0) return speak('まだ記録がありません。');
+        const dist = document.getElementById('total-dist').innerText.replace('km', 'キロ');
+        const fuel = document.getElementById('avg-fuel').innerText;
+        const cost = document.getElementById('total-cost').innerText;
+        const fuelText = fuel.startsWith('--') ? '平均燃費はまだ計算できません。' : `平均燃費はリッター${fuel.replace(' km/L', '')}キロ。`;
+        speak(`記録は${logs.length}件です。総走行距離は${dist}。${fuelText}総維持費は${cost}です。`);
+    }
+
+    function speakLog(id) {
+        const log = logs.find(l => l.id === id);
+        if(!log) return;
+        const labels = { gas: '給油', oil: 'オイル交換', maintenance: '整備', other: 'その他' };
+        const [y, m, d] = log.date.split('-');
+        let text = `${y}年${parseInt(m)}月${parseInt(d)}日、${labels[log.type] || 'その他'}。走行距離${parseInt(log.odometer).toLocaleString()}キロ、費用${parseInt(log.cost).toLocaleString()}円`;
+        if(log.liters) text += `、給油量${log.liters}リットル`;
+        speak(text + '。');
     }
 </script>
 
